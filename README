@@ -9,7 +9,7 @@ After installation, the help page can be reached typing
 rt -h
 
 It's possible to automatically alias rm command with rt.
-Note that in that case "rm -r" will be replaced with "rt -r" that is a complete different command.
+Note that in that case "rm -r" will be replaced with "rt -r".
 However, to remove recursively with rt, is not necessary any flag.
 
 To remove rt and eventual alias, run 

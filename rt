@@ -128,7 +128,7 @@ else
 				file=$arg
 				originalPath=$(readlink -f $file) 
 
-				file=$(echo "$arg" | sed -r 's/ +/_/g')	#replacing spaces with underscores (permanently)
+				file=$(echo "$arg" | sed -r 's/ +/_/g')	#replacing spaces with underscores
 				basenamed=$(basename $file)
 
 				deleteTime=$(date "+%Y-%m-%dT%H:%M:%S")
