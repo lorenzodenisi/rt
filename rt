@@ -1,7 +1,14 @@
 #!/bin/bash
 
-pathToTrash="/home/$USER/.local/share/Trash"
-version="1.0.0"
+user=$(logname)
+
+if [ "$user" = "root" ]; then
+	pathToTrash="/root/.local/share/Trash"
+else
+	pathToTrash="/home/$user/.local/share/Trash"
+fi
+
+version="1.1.0"
 IFS=$'\n'
 
 HELP="Usage: rt [OPTION]... [FILE]...
@@ -12,7 +19,11 @@ Move FILE to Trash.
   -v, --version		output version information and exit
 
   -h, --help		show this help page  
+  
+  -l, --list		show entire content of Trash
 
+  -e, --empty		delete the entire content of Trash
+  
 FILE is moved to Trash folder (default: ~/.local/share/Trash/files) and is
 created the .trashinfo file.
 Is not possible to restore FILE via GUI, to restore use "-r".
@@ -20,6 +31,133 @@ Is not possible to restore FILE via GUI, to restore use "-r".
 Written by Lorenzo De Nisi
 www.github.com/lorenzodenisi
 "
+
+function restore {
+
+	i=0
+				
+	file=$(echo "$arg" | sed -r 's/ +/_/g')	#getting argument and replacing spaces with underscores
+				
+	res=$(find "$pathToTrash/files" -name "$file" -o -name "$file(*)")
+
+	for c in $res; do #find all files matching the name
+	
+		candidate=$(basename $c)
+		ddate=$(grep "^DeletionDate*" "$pathToTrash/info/$candidate.trashinfo" | cut -f 2 -d "=")
+		ddate=$(date --date $ddate)
+		printf "$i.  $candidate\tdeleted $ddate\n"	#showing deletion date so you can chose the correct one
+		let i=$i+1
+
+	done	
+
+	if [ $i -eq 1 ]; then			#if there is only one file matching in the trash,
+						       					#restore it reading the original path from trashinfo file
+		path=$(grep "^Path*" "$pathToTrash/info/$candidate.trashinfo" | cut -f 2 -d "=")
+		path=$(echo $path | sed -r 's/%20+/ /g')	#fixing encoded space
+		mv $c $path
+		if [ $? -eq 0 ]; then			#if there is an error restoring file, avoid trying to remove trashinfo file
+			rm "$pathToTrash/info/$candidate.trashinfo"
+			echo "restored $path"
+		fi
+		
+	elif [ $i -eq 0 ]; then			#if no matching are present
+
+		echo "No matching files in Trash"
+		exit 0
+
+	else							#otherwise read from input a number corresponding to the file you want to restore
+
+		let i=$i-1
+		read -p "[0:$i] (default 0) " ans			
+
+		if [ -z $ans ]; then		#set zero in case of default enter
+			ans="0"
+		fi
+					
+		if (($ans < 0)); then		#set zero in case of non numeric input
+			echo $ans is not a number!
+			exit 0
+		fi
+					
+		if [ $ans -gt $i ]; then		#check if ans is in range
+			echo $ans is out of range
+			exit 0
+		fi
+					
+		j="0"
+		selected=" "
+		for c in $res; do
+			if [[ $j -eq $ans ]]; then
+				selected=$c
+			fi
+			let j=$j+1
+		done
+					
+		if [ "$selected" != " " ]; then
+			s=$(basename $selected)
+			path=$(grep "^Path*" "$pathToTrash/info/$s.trashinfo" | cut -f 2 -d "=")
+			path=$(echo $path | sed -r 's/%20+/ /g')	#fixing encoded space
+			mv $selected $path
+			rm "$pathToTrash/info/$s.trashinfo"
+			echo "restored $path"
+		fi
+	fi
+}
+
+function delete {
+
+	file=$arg
+	originalPath=$(readlink -f $file) 
+
+	file=$(echo "$arg" | sed -r 's/ +/_/g')	#replacing spaces with underscores
+	basenamed=$(basename $file)
+
+	deleteTime=$(date "+%Y-%m-%dT%H:%M:%S")
+
+	i=0	
+	newName=$basenamed	
+	
+	res=$(find "$pathToTrash/files/" -name "$basenamed")
+
+	while [[ $(basename "$res") = "$newName" ]]; do	#find a free name for the file in the trash appending (0),(1) ecc..
+
+		newName="$basenamed($i)"
+		let i=$i+1
+		res=$(find "$pathToTrash/files/" -name "$newName")
+
+	done
+				
+	mv $arg $pathToTrash"/files/$newName"
+	if [ $? -eq 0 ]; then
+		printf "[Trash Info]\nPath=$originalPath\nDeletionDate=$deleteTime" > $pathToTrash"/info/"$newName".trashinfo"
+	fi
+}	
+
+function list {
+
+	echo "Content of $pathToTrash: 
+"
+	for item in $(ls -A $pathToTrash/files); do
+		echo $item
+	done
+
+}
+
+function empty {
+
+	echo "Removing content of $pathToTrash...
+"
+	for item in $(ls -A $pathToTrash/files); do
+		rm $pathToTrash/files/$item
+		if [ $? -eq 0 ]; then
+			rm $pathToTrash/info/$item.trashinfo
+		fi
+	done
+
+
+	echo Done
+
+}
 
 
 if [ $# -eq 0 ]; then
@@ -36,10 +174,12 @@ else
 					restore=0
 				elif [ "$arg" = "--version" ]; then
 					echo rt $version
-					exit 0
 				elif [ "$arg" = "--help" ]; then
 					printf "$HELP"
-					exit 0
+				elif [ "$arg" = "--list" ]; then
+					list
+				elif [ "$arg" = "--empty" ]; then
+					empty				
 				fi
 			else
 
@@ -47,112 +187,22 @@ else
 					restore=0	#set restore flag	
 				elif [[ "$arg" ==  *"v"* ]]; then
 					echo rt $version
-					exit 0
 				elif [[ "$arg" == *"h"* ]]; then
 					printf "$HELP"
-					exit 0
+				elif [[ "$arg" == *"l"* ]]; then
+					list
+				elif [[ "$arg" == *"e"* ]]; then
+					empty
 				fi
 			fi
 
 		else
 			if [ $restore -eq 0 ]; then
-		
-				i=0
-				
-				file=$(echo "$arg" | sed -r 's/ +/_/g')	#getting argument and replacing spaces with underscores
-				
-				res=$(find "$pathToTrash/files" -name "$file" -o -name "$file(*)")
-
-				for c in $res; do #find all files matching the name
-	
-					candidate=$(basename $c)
-					ddate=$(grep "^DeletionDate*" "$pathToTrash/info/$candidate.trashinfo" | cut -f 2 -d "=")
-					ddate=$(date --date $ddate)
-					printf "$i.  $candidate\tdeleted $ddate\n"	#showing deletion date so you can chose the correct one
-					let i=$i+1
-
-				done	
-
-				if [ $i -eq 1 ]; then			#if there is only one file matching in the trash,
-						       					#restore it reading the original path from trashinfo file
-					path=$(grep "^Path*" "$pathToTrash/info/$candidate.trashinfo" | cut -f 2 -d "=")
-					path=$(echo $path | sed -r 's/%20+/ /g')	#fixing encoded space
-					mv $c $path
-					rm "$pathToTrash/info/$candidate.trashinfo"
-					echo "restored $path"
-
-				elif [ $i -eq 0 ]; then			#if no matching are present
-
-					echo "No matching files in Trash"
-					exit 0
-
-				else							#otherwise read from input a number corresponding to the file you want to restore
-					let i=$i-1
-					read -p "[0:$i] (default 0) " ans			
-
-					if [ -z $ans ]; then		#set zero in case of default enter
-						ans="0"
-					fi
-					
-					if (($ans < 0)); then		#set zero in case of non numeric input
-						echo $ans is not a number!
-						exit 0
-					fi
-					
-					if [ $ans -gt $i ]; then		#check if ans is in range
-						echo $ans is out of range
-						exit 0
-					fi
-					
-					j="0"
-					selected=" "
-					for c in $res; do
-						if [[ $j -eq $ans ]]; then
-							selected=$c
-						fi
-						let j=$j+1
-					done
-					
-					if [ "$selected" != " " ]; then
-						s=$(basename $selected)
-						path=$(grep "^Path*" "$pathToTrash/info/$s.trashinfo" | cut -f 2 -d "=")
-						path=$(echo $path | sed -r 's/%20+/ /g')	#fixing encoded space
-						mv $selected $path
-						rm "$pathToTrash/info/$s.trashinfo"
-						echo "restored $path"
-					fi
-				fi
-
+					restore		
 			else
-
-				file=$arg
-				originalPath=$(readlink -f $file) 
-
-				file=$(echo "$arg" | sed -r 's/ +/_/g')	#replacing spaces with underscores
-				basenamed=$(basename $file)
-
-				deleteTime=$(date "+%Y-%m-%dT%H:%M:%S")
-
-				i=0	
-				newName=$basenamed	
-		
-				res=$(find "$pathToTrash/files/" -name "$basenamed")
-
-				while [[ $(basename "$res") = "$newName" ]]; do	#find a free name for the file in the trash appending (0),(1) ecc..
-
-					newName="$basenamed($i)"
-					let i=$i+1
-					res=$(find "$pathToTrash/files/" -name "$newName")
-
-				done
-				
-				mv $arg $pathToTrash"/files/$newName"
-				printf "[Trash Info]\nPath=$originalPath\nDeletionDate=$deleteTime" > $pathToTrash"/info/"$newName".trashinfo"
-
+					delete
 			fi
-
 		fi
-
 	done
 
 fi
