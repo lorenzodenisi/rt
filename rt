@@ -9,7 +9,7 @@ else
 fi
 
 version="1.1.0"
-IFS=$'\n'
+IFS=$'\n'	#adding \n to delimiters
 
 HELP="Usage: rt [OPTION]... [FILE]...
 Move FILE to Trash.
